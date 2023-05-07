@@ -55,7 +55,7 @@ today = nepali_datetime.date.today()
 date_of_previous_month = get_last_date_of_previous_month(
     today.year, today.month)
 logger.info(
-    f"\nFetching transactions for {date_of_previous_month.year} {nepali_datetime._FULLMONTHNAMES[date_of_previous_month.month]}")
+    f"#### Fetching transactions for {date_of_previous_month.year} {nepali_datetime._FULLMONTHNAMES[date_of_previous_month.month]} ####")
 
 START_DATE, END_DATE = get_start_to_end_date_object_in_ad(
     date_of_previous_month)
