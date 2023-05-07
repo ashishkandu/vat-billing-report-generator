@@ -1,0 +1,13 @@
+# configuration details for connecting to the db server
+
+[driver]
+name = 'ODBC Driver 17 for SQL Server'
+
+[server]
+name = 'inspiron-5570'
+
+[database]
+name = 'VatBillingSoftware'
+
+[user]
+name = 'sa'
