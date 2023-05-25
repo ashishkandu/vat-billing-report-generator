@@ -16,7 +16,7 @@ db_config_file = os.path.join(curr_path, 'config.toml')
 
 logger.debug('Loading database connection configuration...')
 
-print("""
+print("""### Report Generator ###
 1. Purchase
 2. Sales
 """)
@@ -144,7 +144,7 @@ else:
                 total_litres += inner_row[lookup]
                 amount += inner_row[4]
                 vat += inner_row[5]
-                if amount+vat != row[4]: print('[+] Diff:', row[0], amount+vat, row[4], sep=' | ')
+            if amount+vat != row[4]: print('[+] Diff:', row[0], amount+vat, row[4], sep=' | ')
             extracted_data.append((bs_date, row[0], row[5], curr_pan_no, 'Diesel/Petrol', round(total_litres, 2), 'L', amount+vat, '', amount, vat))
             continue
         amount = inner_rows[0][4]
