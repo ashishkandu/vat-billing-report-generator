@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 import os
 import nepali_datetime
 import datetime
-from pyBSDate import bsdate
+from pyBSDate import bsdate, addate
 import tomli
 from my_logging import log_setup
 import logging
@@ -15,6 +15,25 @@ curr_path = os.path.dirname(os.path.realpath(__file__))
 db_config_file = os.path.join(curr_path, 'config.toml')
 
 logger.debug('Loading database connection configuration...')
+
+print("""
+1. Purchase
+2. Sales
+""")
+while True:
+    try:
+        lookup = int(input('Enter 1 or 2: '))
+    except ValueError as ve:
+        print("! Please enter specified values only...")
+    if lookup == 1:
+        file_name = 'purchase.csv'
+        break
+    elif lookup == 2:
+        file_name = 'sales.csv'
+        break
+    else:
+        print("! Invalid input")
+        continue
 
 if not os.path.exists(db_config_file):
     logger.error(f'Config file {db_config_file} does not exist')
@@ -80,21 +99,27 @@ else:
     logger.info('---- Database connected ! ----')
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT [Transaction ID], [Transaction Type], [Transaction Date], [Bill Date], Remarks, Status, [Transaction Amount], [Bill Receiveable Person]
+        SELECT [Transaction ID], [Transaction Type], [Transaction Date], [Bill Date], [Transaction Amount], [Bill Receiveable Person]
         FROM VatBillingSoftware.dbo.SystemTransaction
         WHERE [Transaction Date] >= ? AND [Transaction Date] <= ? AND [Transaction Type] = ?
         """,
-                   [START_DATE, END_DATE, 2]
+                   [START_DATE, END_DATE, lookup]
                    )
     rows = cursor.fetchall()
     logger.debug('SystemTransaction fetch complete')
 
     extracted_data = []
 
+    inventroy_item_code = {
+        '01-0001': 'Petrol',
+        '01-0002': 'Diesel'
+    }
+
     for row in rows:
-        # print(row[0], row[7], row[2])
+        # print(row[0], row[5], row[2])
+        if row[2] != row[3]: print(f'{row[0]: -^20}')
         cursor.execute("""
-            SELECT [Inventory Item Code], [Item Out], [Rate Amount], [VATABLE AMOUNT], [VAT AMOUNT]
+            SELECT [Inventory Item Code], [Item In], [Item Out], [ACCOUNT ID], [VATABLE AMOUNT], [VAT AMOUNT]
             FROM VatBillingSoftware.dbo.SystemTransactionPurchaseSalesItem
             WHERE [Transaction ID] = ?
         """,
@@ -102,18 +127,35 @@ else:
 
                        )
         inner_rows = cursor.fetchall()
+        curr_pan_no = cursor.execute("""
+        SELECT [Vat Pan No]
+        FROM VatBillingSoftware.dbo.AccountProfileProduct
+        WHERE [ACCOUNT ID] = ?
+        """, inner_rows[0][3]).fetchval()
+        bs_date = addate(year=row[2].year, month=row[2].month, day=row[2].day).bsdate.strftime("%Y.%m.%d")
+        # formatted_bs_date = bs_date.strftime("%Y.%m.%d")
+        # print(formatted_bs_date)
+
         if len(inner_rows) > 1:
-            total = 0
+            total_litres = 0
+            amount = 0
+            vat = 0
             for inner_row in inner_rows:
-                total += inner_row[1]
-            extracted_data.append((row[0], row[7], round(total, 2)))
+                total_litres += inner_row[lookup]
+                amount += inner_row[4]
+                vat += inner_row[5]
+                if amount+vat != row[4]: print('[+] Diff:', row[0], amount+vat, row[4], sep=' | ')
+            extracted_data.append((bs_date, row[0], row[5], curr_pan_no, 'Diesel/Petrol', round(total_litres, 2), 'L', amount+vat, '', amount, vat))
             continue
-        extracted_data.append((row[0], row[7], round(inner_rows[0][1], 2)))
+        amount = inner_rows[0][4]
+        vat = inner_rows[0][5]
+        if amount+vat != row[4]: print('[+] Diff:', row[0], amount+vat, row[4], sep=' | ')
+        extracted_data.append((bs_date, row[0], row[5], curr_pan_no, inventroy_item_code[inner_rows[0][0]], round(inner_rows[0][lookup], 2), 'L', amount+vat, '', amount, vat))
     logger.info("---- Extraction complete ! ----")
-    with open('file.csv', 'w') as f:
+    with open(file_name, 'w') as f:
         f.writelines(
-            [f"{data[0]}, {data[1]}, {data[2]}\n" for data in extracted_data])
-        logger.info("File saved successfully")
+            [f"{data[0]},{data[1]},{data[2]},{data[3]},{data[4]},{data[5]},{data[6]},{data[7]},{data[8]},{data[9]},{data[10]}\n" for data in extracted_data])
+        logger.info(f"{file_name} saved successfully")
 
 finally:
     try:

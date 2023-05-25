@@ -8,6 +8,6 @@ test.py
 
 # logs
 *.log
+*.csv
 
-# genereate report files
-file.csv
+restore.sql
