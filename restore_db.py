@@ -15,11 +15,15 @@ logger = logging.getLogger(__name__)
 
 curr_path = os.path.dirname(os.path.realpath(__file__))
 db_config_file = os.path.join(curr_path, 'config.toml')
+if not os.path.exists(db_config_file):
+    logger.error(f'Config file {db_config_file} does not exist')
+    exit(1)
 
 # Set the path to the backup file
 backup_file_path = os.path.join(curr_path, 'backup')
 if not os.path.exists(backup_file_path):
-    raise SystemExit(f"Could not find backup directory: {backup_file_path}")
+    logger.error(f"Couldn't find backup directory: {backup_file_path}")
+    exit(1)
 
 def get_recent_file(directory_path):
     most_recent_file = None
@@ -36,20 +40,13 @@ def get_recent_file(directory_path):
                 most_recent_time = mod_time
     return most_recent_file
 
-print(get_recent_file(backup_file_path))
-# filename = 'VatBillingSoftware_20800210_233219.bak'
 backup_file_name = get_recent_file(backup_file_path)
+logger.info(f"[*] Using file {backup_file_name}")
 backup_file = os.path.join(backup_file_path, backup_file_name)
 
-if not os.path.exists(backup_file):
-    raise SystemExit(f"Couldn't find backup file in {backup_file}")
 curr_os_mssql_files_path = '/var/opt/mssql/data'
 
 logger.debug('Loading database connection configuration...')
-
-if not os.path.exists(db_config_file):
-    logger.error(f'Config file {db_config_file} does not exist')
-    exit(1)
 
 with open(db_config_file, 'rb') as config_file:
     config_data: dict = tomli.load(config_file)
