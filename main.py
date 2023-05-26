@@ -7,12 +7,15 @@ from pyBSDate import bsdate, addate
 import tomli
 from my_logging import log_setup
 import logging
+import pandas as pd
+import shutil
 
 log_setup()  # Initializing logging configurations
 logger = logging.getLogger(__name__)
 
 curr_path = os.path.dirname(os.path.realpath(__file__))
 db_config_file = os.path.join(curr_path, 'config.toml')
+sheets_format_directory = os.path.join(curr_path, 'sheets', 'format')
 
 logger.debug('Loading database connection configuration...')
 
@@ -26,10 +29,12 @@ while True:
     except ValueError as ve:
         print("! Please enter specified values only...")
     if lookup == 1:
-        file_name = 'purchase.csv'
+        file_name = 'purchase'
+        sheet_name = 'Nepali PB'
         break
     elif lookup == 2:
-        file_name = 'sales.csv'
+        file_name = 'sales'
+        sheet_name = 'Nepali SB'
         break
     else:
         print("! Invalid input")
@@ -74,8 +79,17 @@ today = nepali_datetime.date.today()
 date_of_previous_month = get_last_date_of_previous_month(
     today.year, today.month)
 logger.info(
-    f"#### Fetching transactions for {date_of_previous_month.year} {nepali_datetime._FULLMONTHNAMES[date_of_previous_month.month]} ####")
+    f"#### Fetching {file_name} transactions for {date_of_previous_month.year} {nepali_datetime._FULLMONTHNAMES[date_of_previous_month.month]} ####")
 
+files = {}
+for entry in os.scandir(sheets_format_directory):
+        if entry.is_file():
+            original_name = entry.name
+            if file_name in original_name:
+                book_name = original_name.split(".")[0].split("-")[0]
+                dest = os.path.join(curr_path, 'sheets', book_name + " - " + nepali_datetime._FULLMONTHNAMES[date_of_previous_month.month] +".xlsx")
+                files[book_name] = dest
+                shutil.copyfile(os.path.join(sheets_format_directory, original_name), dest)
 START_DATE, END_DATE = get_start_to_end_date_object_in_ad(
     date_of_previous_month)
 
@@ -132,6 +146,7 @@ else:
         FROM VatBillingSoftware.dbo.AccountProfileProduct
         WHERE [ACCOUNT ID] = ?
         """, inner_rows[0][3]).fetchval()
+        if curr_pan_no == "": curr_pan_no = 9999999999
         bs_date = addate(year=row[2].year, month=row[2].month, day=row[2].day).bsdate.strftime("%Y.%m.%d")
         # formatted_bs_date = bs_date.strftime("%Y.%m.%d")
         # print(formatted_bs_date)
@@ -152,10 +167,30 @@ else:
         if amount+vat != row[4]: print('[+] Diff:', row[0], amount+vat, row[4], sep=' | ')
         extracted_data.append((bs_date, row[0], row[5], curr_pan_no, inventroy_item_code[inner_rows[0][0]], round(inner_rows[0][lookup], 2), 'L', amount+vat, '', amount, vat))
     logger.info("---- Extraction complete ! ----")
-    with open(file_name, 'w') as f:
-        f.writelines(
-            [f"{data[0]},{data[1]},{data[2]},{data[3]},{data[4]},{data[5]},{data[6]},{data[7]},{data[8]},{data[9]},{data[10]}\n" for data in extracted_data])
-        logger.info(f"{file_name} saved successfully")
+    # with open(file_name, 'w') as f:
+    #     f.writelines(
+    #         [f"{data[0]},{data[1]},{data[2]},{data[3]},{data[4]},{data[5]},{data[6]},{data[7]},{data[8]},{data[9]},{data[10]}\n" for data in extracted_data])
+    #     logger.info(f"{file_name} saved successfully")
+    sheet = files[file_name]
+
+    reader = pd.read_excel(sheet)
+    df = pd.DataFrame(extracted_data)
+    df[3] = df[3].astype(int)
+    df[5] = df[5].astype(float)
+    df[7] = df[7].astype(float)
+    df[9] = df[9].astype(float)
+    df[10] = df[10].astype(float)
+
+    df[3].mask(df[3] == 9999999999, '', inplace=True)
+
+    with pd.ExcelWriter(
+        sheet,
+        mode="a",
+        engine="openpyxl",
+        if_sheet_exists="overlay",
+        # engine_kwargs={'options': {'strings_to_numbers': True}},
+    ) as writer:
+        df.to_excel(writer, index=False, header=False, sheet_name=sheet_name, startrow=len(reader) + 1)
 
 finally:
     try:

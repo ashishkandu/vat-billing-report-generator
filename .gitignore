@@ -3,6 +3,7 @@ __pycache__/
 .vscode/
 venv/
 backup/
+sheets/*.xlsx
 
 # test files
 test.py
