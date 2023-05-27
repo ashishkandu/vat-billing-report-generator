@@ -160,12 +160,12 @@ else:
                 amount += inner_row[4]
                 vat += inner_row[5]
             if amount+vat != row[4]: print('[+] Diff:', row[0], amount+vat, row[4], sep=' | ')
-            extracted_data.append((bs_date, row[0], row[5], curr_pan_no, 'Diesel/Petrol', round(total_litres, 2), 'L', amount+vat, '', amount, vat))
+            extracted_data.append((bs_date, row[0], '', row[5], curr_pan_no, 'Diesel/Petrol', round(total_litres, 2), 'L', amount+vat, '', amount, vat))
             continue
         amount = inner_rows[0][4]
         vat = inner_rows[0][5]
         if amount+vat != row[4]: print('[+] Diff:', row[0], amount+vat, row[4], sep=' | ')
-        extracted_data.append((bs_date, row[0], row[5], curr_pan_no, inventroy_item_code[inner_rows[0][0]], round(inner_rows[0][lookup], 2), 'L', amount+vat, '', amount, vat))
+        extracted_data.append((bs_date, row[0], '', row[5], curr_pan_no, inventroy_item_code[inner_rows[0][0]], round(inner_rows[0][lookup], 2), 'L', amount+vat, '', amount, vat))
     logger.info("---- Extraction complete ! ----")
     # with open(file_name, 'w') as f:
     #     f.writelines(
@@ -175,13 +175,16 @@ else:
 
     reader = pd.read_excel(sheet)
     df = pd.DataFrame(extracted_data)
-    df[3] = df[3].astype(int)
-    df[5] = df[5].astype(float)
-    df[7] = df[7].astype(float)
-    df[9] = df[9].astype(float)
+    df[4] = df[4].astype(int)
+    df[6] = df[6].astype(float)
+    df[8] = df[8].astype(float)
     df[10] = df[10].astype(float)
+    df[11] = df[11].astype(float)
 
-    df[3].mask(df[3] == 9999999999, '', inplace=True)
+    df[4].mask(df[4] == 9999999999, '', inplace=True)
+
+    if lookup == 2:
+        df.drop(df.columns[2], axis=1, inplace=True)
 
     with pd.ExcelWriter(
         sheet,
