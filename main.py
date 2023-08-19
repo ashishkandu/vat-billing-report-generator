@@ -9,13 +9,14 @@ from my_logging import log_setup
 import logging
 import pandas as pd
 import shutil
+from pathlib import Path
 
 log_setup()  # Initializing logging configurations
 logger = logging.getLogger(__name__)
 
-curr_path = os.path.dirname(os.path.realpath(__file__))
-db_config_file = os.path.join(curr_path, 'config.toml')
-sheets_format_directory = os.path.join(curr_path, 'sheets', 'format')
+curr_path = Path.cwd()
+db_config_file = curr_path.joinpath('config.toml')
+sheets_format_directory = curr_path.joinpath('sheets', 'format')
 
 logger.debug('Loading database connection configuration...')
 
@@ -40,7 +41,7 @@ while True:
         print("! Invalid input")
         continue
 
-if not os.path.exists(db_config_file):
+if not db_config_file.exists():
     logger.error(f'Config file {db_config_file} does not exist')
     exit(1)
 
@@ -52,6 +53,7 @@ SERVER_NAME = config_data['server']['name']
 DATABASE_NAME = config_data['database']['name']
 USERNAME = config_data['user']['name']
 logger.debug('Configurations loaded successfully')
+
 
 def get_last_date_of_previous_month(current_year: int, current_month: int):
     """ 
@@ -78,20 +80,30 @@ def get_start_to_end_date_object_in_ad(any_date):
 today = nepali_datetime.date.today()
 date_of_previous_month = get_last_date_of_previous_month(
     today.year, today.month)
+
+nepali_month = nepali_datetime._FULLMONTHNAMES[date_of_previous_month.month]
+
 logger.info(
-    f"#### Fetching {file_name} transactions for {date_of_previous_month.year} {nepali_datetime._FULLMONTHNAMES[date_of_previous_month.month]} ####")
+    f"#### Fetching {file_name} transactions for {date_of_previous_month.year} {nepali_month} ####")
 
 files = {}
 for entry in os.scandir(sheets_format_directory):
-        if entry.is_file():
-            original_name = entry.name
-            if file_name in original_name:
-                book_name = original_name.split(".")[0].split("-")[0]
-                dest = os.path.join(curr_path, 'sheets', book_name + " - " + nepali_datetime._FULLMONTHNAMES[date_of_previous_month.month] +".xlsx")
-                files[book_name] = dest
-                shutil.copyfile(os.path.join(sheets_format_directory, original_name), dest)
+    if entry.is_file():
+        original_name = entry.name
+        if file_name in original_name:
+            book_name = original_name.split(".")[0].split("-")[0]
+            Path().cwd().joinpath('sheets', nepali_month).mkdir(parents=True, exist_ok=True)
+            dest = curr_path.joinpath('sheets', nepali_month, book_name + " - " +
+                                nepali_month + ".xlsx")
+            files[book_name] = dest
+            shutil.copyfile(os.path.join(
+                sheets_format_directory, original_name), dest)
 START_DATE, END_DATE = get_start_to_end_date_object_in_ad(
     date_of_previous_month)
+
+# START_DATE = datetime.datetime(year=2022, month=7, day=17)
+
+# END_DATE = datetime.datetime(year=2023, month=7, day=16)
 
 load_dotenv()  # Load the environment containing db password
 password = os.getenv('DBpassword')
@@ -131,7 +143,9 @@ else:
 
     for row in rows:
         # print(row[0], row[5], row[2])
-        if row[2] != row[3]: print(f'{row[0]: -^20}')
+        if row[2] != row[3]:
+            print(row[2], row[3])
+            print(f'{row[0]:-^20}')
         cursor.execute("""
             SELECT [Inventory Item Code], [Item In], [Item Out], [ACCOUNT ID], [VATABLE AMOUNT], [VAT AMOUNT]
             FROM VatBillingSoftware.dbo.SystemTransactionPurchaseSalesItem
@@ -146,8 +160,10 @@ else:
         FROM VatBillingSoftware.dbo.AccountProfileProduct
         WHERE [ACCOUNT ID] = ?
         """, inner_rows[0][3]).fetchval()
-        if curr_pan_no == "": curr_pan_no = 9999999999
-        bs_date = addate(year=row[2].year, month=row[2].month, day=row[2].day).bsdate.strftime("%Y.%m.%d")
+        if curr_pan_no == "":
+            curr_pan_no = 9999999999
+        bs_date = addate(year=row[2].year, month=row[2].month,
+                         day=row[2].day).bsdate.strftime("%Y.%m.%d")
         # formatted_bs_date = bs_date.strftime("%Y.%m.%d")
         # print(formatted_bs_date)
 
@@ -159,13 +175,17 @@ else:
                 total_litres += inner_row[lookup]
                 amount += inner_row[4]
                 vat += inner_row[5]
-            if amount+vat != row[4]: print('[+] Diff:', row[0], amount+vat, row[4], sep=' | ')
-            extracted_data.append((bs_date, row[0], '', row[5], curr_pan_no, 'Diesel/Petrol', round(total_litres, 2), 'L', amount+vat, '', amount, vat))
+            if amount+vat != row[4]:
+                print('[+] Diff:', row[0], amount+vat, row[4], sep=' | ')
+            extracted_data.append((bs_date, row[0], '', row[5], curr_pan_no, 'Diesel/Petrol', round(
+                total_litres, 2), 'L', amount+vat, '', amount, vat))
             continue
         amount = inner_rows[0][4]
         vat = inner_rows[0][5]
-        if amount+vat != row[4]: print('[+] Diff:', row[0], amount+vat, row[4], sep=' | ')
-        extracted_data.append((bs_date, row[0], '', row[5], curr_pan_no, inventroy_item_code[inner_rows[0][0]], round(inner_rows[0][lookup], 2), 'L', amount+vat, '', amount, vat))
+        if amount+vat != row[4]:
+            print('[+] Diff:', row[0], amount+vat, row[4], sep=' | ')
+        extracted_data.append((bs_date, row[0], '', row[5], curr_pan_no, inventroy_item_code[inner_rows[0][0]], round(
+            inner_rows[0][lookup], 2), 'L', amount+vat, '', amount, vat))
     logger.info("---- Extraction complete ! ----")
     # with open(file_name, 'w') as f:
     #     f.writelines(
@@ -175,6 +195,7 @@ else:
 
     reader = pd.read_excel(sheet)
     df = pd.DataFrame(extracted_data)
+    print(df)
     df[4] = df[4].astype(int)
     df[6] = df[6].astype(float)
     df[8] = df[8].astype(float)
@@ -193,7 +214,8 @@ else:
         if_sheet_exists="overlay",
         # engine_kwargs={'options': {'strings_to_numbers': True}},
     ) as writer:
-        df.to_excel(writer, index=False, header=False, sheet_name=sheet_name, startrow=len(reader) + 1)
+        df.to_excel(writer, index=False, header=False,
+                    sheet_name=sheet_name, startrow=len(reader) + 1)
 
 finally:
     try:

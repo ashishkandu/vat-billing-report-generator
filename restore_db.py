@@ -9,6 +9,7 @@ from my_logging import log_setup
 import os
 import tomli
 from dotenv import load_dotenv
+from datetime import datetime
 
 log_setup()  # Initializing logging configurations
 logger = logging.getLogger(__name__)
@@ -25,6 +26,7 @@ if not os.path.exists(backup_file_path):
     logger.error(f"Couldn't find backup directory: {backup_file_path}")
     exit(1)
 
+
 def get_recent_file(directory_path):
     most_recent_file = None
     most_recent_time = 0
@@ -38,7 +40,10 @@ def get_recent_file(directory_path):
                 # update the most recent file and its modification time
                 most_recent_file = entry.name
                 most_recent_time = mod_time
+    print(
+        f"Found file {most_recent_file} with latest modification time {datetime.fromtimestamp(most_recent_time//1000000000)}")
     return most_recent_file
+
 
 backup_file_name = get_recent_file(backup_file_path)
 logger.info(f"[*] Using file {backup_file_name}")
@@ -83,7 +88,7 @@ else:
     cursor.execute(f"""
     RESTORE FILELISTONLY FROM DISK = N'{backup_file}'
     """)
-    
+
     filelist_dict: dict = {}
     for row in cursor.fetchall():
         filelist_dict[row[2]] = {
@@ -107,4 +112,3 @@ finally:
         logger.info('Connection closed successfully')
     except NameError as name_error:
         logger.error(f'Terminating forcefully with error {name_error}')
-
