@@ -162,8 +162,8 @@ if __name__ == '__main__':
     trans_file = TransactionFileHandler(previous_month_np)
     files = trans_file.files
 
-    purchase = Transaction(1, 'purchase', 'Neplai PB', 'Item_out', 'Item_in', 'P', None)
-    sales = Transaction(2, 'sales', 'Neplai SB', 'Item_in', 'Item_out', 'S', None)
+    purchase = Transaction(1, 'purchase', 'Nepali PB', 'Item_out', 'Item_in', 'P', None)
+    sales = Transaction(2, 'sales', 'Nepali SB', 'Item_in', 'Item_out', 'S', None)
 
     transactions = Transactions(purchase, sales)
 
