@@ -39,11 +39,12 @@ def append_transactions_above_1L(transactions: list, PAN_no, name, transaction_t
     transactions.append([PAN_no, name, 'E', transaction_type_char, taxable_amount, 0])
     
 
-def save_transactions_above_1L(files: dict, transactions):
+def save_transactions_above_1L(files: dict, transactions: List[List[Any]]):
     df = pd.read_excel(files['1L'])
     new_df = pd.DataFrame(transactions, columns=df.columns)
     df = pd.concat([df, new_df], ignore_index=True)
     df.to_excel(files['1L'], index=False)
+    # Output in the console
     print(f"\n##### Transactions above 1 Lakh #####\n")
     print(new_df)
 
@@ -101,19 +102,32 @@ def main(transactions: Transactions):
 
     transaction: Transaction
     for transaction in transactions:
+        # adding headers here to make working with dataframe easier
         headers = ['Date AD', 'Date', 'Transaction ID', 'Bill Receiveable Person', 'PAN No', 'Item', 'Item_in', 'Item_out', 'Total', 'Taxable', 'VAT']
         df = pd.DataFrame(transaction.records , columns=headers)
+
+        # removing Date AD column, didnt remove from the query for future use also removing one
+        # column either item_In or item_Out
         df.drop(columns=['Date AD', transaction.remove_col], axis=1, inplace=True)
+
+        # insertion of extra columns as required by format templates
         df.insert(6, 'unit', 'L')
         df.insert(8, 'blank', '')
+
+        # logic to convert string to numeric for missing PANs in the column
         df['PAN No'].mask(df['PAN No'] == '', 000, inplace=True)
         df['PAN No'] = df['PAN No'].astype(int)
         df['PAN No'].mask(df['PAN No'] == 000, '', inplace=True)
+
+        # conversion stiring to numeric (shouldn't have missing values)
         df[transaction.item_col] = df[transaction.item_col].astype(float)
         df['Total'] = df['Total'].astype(float)
         df['Taxable'] = df['Taxable'].astype(float)
         df['VAT'] = df['VAT'].astype(float)
+
+        # adding new row as total of all numeric columns
         df.loc['Column_Total']= df.sum(numeric_only=True, axis=0)
+
         print(f"\n#### {transaction.transaction_name.capitalize()} transactions ####\n")
         print(df)
 
@@ -121,6 +135,7 @@ def main(transactions: Transactions):
         total_taxable = round(df['Taxable'].iloc[-1], 2)
         print(f'\n[+] {transaction.transaction_name.capitalize()} total Taxable: {total_taxable}\n')
 
+        # filtering transactions having PAN no field value
         PAN_customers_df = df[df['PAN No'].astype(bool)].copy()
         PAN_customers_df = PAN_customers_df.drop('Column_Total')
         PAN_customers_df = PAN_customers_df.groupby('PAN No').agg({'Bill Receiveable Person': 'first', 'Taxable': 'sum'}).reset_index()
@@ -133,11 +148,11 @@ def main(transactions: Transactions):
         for index, row in PAN_customers_df_filter.iterrows():
             append_transactions_above_1L(transactions_above_1L, row['PAN No'], row['Bill Receiveable Person'], transaction.trans_char, round(row['Taxable']))
 
-        sheet = files[transaction.transaction_name]
+        file = files[transaction.transaction_name]
 
-        reader = pd.read_excel(sheet)
+        reader = pd.read_excel(file)
         with pd.ExcelWriter(
-                sheet,
+                file,
                 mode="a",
                 engine="openpyxl",
                 if_sheet_exists="overlay",

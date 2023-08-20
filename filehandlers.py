@@ -34,8 +34,9 @@ class TransactionFileHandler():
         self.trans_above_1L_file = self.transactionAbove1LD / 'template.xls'
         self.transaction_above_1L_file_check(self.trans_above_1L_file)
 
-        self.files = self.initialize_sheets(folder_name)
         self.fiscal_year = get_fiscal_year_acc_prev_month_np()
+
+        self.files = self.initialize_sheets(folder_name)
 
     def create_dir_if_not_exists(self, path: Path):
         path.mkdir(parents=True, exist_ok=True)
@@ -76,7 +77,7 @@ class TransactionFileHandler():
     def initialize_sheets(self, folder_name):
         """Copies the sheets to saveD to work with the sheets"""
         
-        logger.info('Initializing sheets and copying it to previoud month folder')
+        logger.info('Initializing sheets and copying it to previous month folder')
         files = {}
         # Scanning the format directory to copy the initial sales-purchase sheets to saveD
         for entry in scandir(self.formatD):
