@@ -34,7 +34,6 @@ class Transactions:
     def __iter__(self):
         for field in fields(self):
             yield getattr(self, field.name)
-        # yield from asdict(self).values()
 
 def append_transactions_above_1L(transactions: list, PAN_no, name, transaction_type_char, taxable_amount):
     transactions.append([PAN_no, name, 'E', transaction_type_char, taxable_amount, 0])

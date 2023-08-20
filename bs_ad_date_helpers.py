@@ -38,3 +38,14 @@ def get_start_to_end_date_object_in_bs(end_date_of_a_month_np=get_end_date_of_pr
 def get_previous_month_name_np() -> str:
     """Returns the previous month name as per nepali calander"""
     return nepali_datetime._FULLMONTHNAMES[get_end_date_of_previous_month().month]
+
+def get_fiscal_year_acc_prev_month_np() -> str:
+    """Returns the fiscal year value as per previous month"""
+    year = get_end_date_of_previous_month().year
+    month = get_end_date_of_previous_month().month
+    year_int = int(year)
+    if int(month) > 3:
+        fiscal_year = f'{year_int}/{str(year_int+1)[2:]}'
+    else:
+        fiscal_year = f'{year_int-1}/{str(year_int)[2:]}'
+    return fiscal_year

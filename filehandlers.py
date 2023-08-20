@@ -1,6 +1,8 @@
 from pathlib import Path
 from os import scandir
 import shutil
+from openpyxl import load_workbook
+from bs_ad_date_helpers import get_end_date_of_previous_month, get_fiscal_year_acc_prev_month_np
 
 from my_logging import log_setup
 import logging
@@ -13,6 +15,7 @@ def delete_rows_in_excel(filePath: Path, index: list):
     df = pd.read_excel(filePath)
     df = df.drop(df.index[index])
     df.to_excel(filePath, index=False)
+
 
 class TransactionFileHandler():
     
@@ -31,7 +34,7 @@ class TransactionFileHandler():
         self.create_dir_if_not_exists(self.formatD)
         self.transactionAbove1LD = self.formatD / 'transactionAbove1L'
 
-        self.saveD = self.sheetsD / folder_name
+        self.saveD = self.sheetsD / get_fiscal_year_acc_prev_month_np().replace('/', '-') /folder_name
         self.create_dir_if_not_exists(self.saveD)
 
         # Different files
@@ -49,6 +52,15 @@ class TransactionFileHandler():
     
     def check_file_exists(self, path: Path):
         return path.exists()
+    
+    def add_report_details(self, src: Path, dest: Path, fiscal_year, month):
+        desired = u'करदाता दर्ता नं (PAN) : 301003001        करदाताको नाम: SHANKER PARBATI OIL STORES         साल: {}    कर अवधि: {}'.format(fiscal_year, month)
+        print(desired)
+        workbook = load_workbook(filename=src)
+        sheet = workbook.active
+        sheet["A4"] = desired
+        workbook.save(filename=dest)
+
 
     def transaction_above_1L_file_check(self, file_path: Path):
         if not self.check_file_exists(file_path):
@@ -78,7 +90,11 @@ class TransactionFileHandler():
                 sheets_name = original_name.split(".")[0].split("-")[0]
                 dest = self.saveD.joinpath(sheets_name + " - " + folder_name + ".xlsx")
                 files[sheets_name] = dest
-                self.copy(self.formatD.joinpath(original_name), dest)
+                month = get_end_date_of_previous_month().strftime('%m')
+                fiscal_year = get_fiscal_year_acc_prev_month_np()
+                # add report header details and also copy to the destination folder
+                self.add_report_details(self.formatD.joinpath(original_name), dest, fiscal_year, month)
+                # self.copy(self.formatD.joinpath(original_name), dest)
         
         trans_above_1L_file_dest = self.saveD / 'transactions_above_1L.xls'
         files['1L'] = trans_above_1L_file_dest
