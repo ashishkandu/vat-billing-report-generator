@@ -28,6 +28,7 @@ SELECT [Transaction Date]
 	  ,[Bill Receiveable Person]
 	  ,accProfInfo.[Vat Pan No]
       ,amtTran.[Grand Total]
+      ,amtTran.[Taxable Amount] + amtTran.[Tax Amount] as 'Total'
       ,amtTran.[Taxable Amount]
       ,amtTran.[Tax Amount]
   ORDER BY sysTran.[Transaction ID]

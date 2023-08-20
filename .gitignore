@@ -2,6 +2,8 @@
 __pycache__/
 .vscode/
 venv/
+env/
+.venv/
 backup/
 sheets/
 

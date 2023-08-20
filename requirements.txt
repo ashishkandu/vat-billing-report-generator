@@ -1,6 +1,10 @@
 nepali_datetime==1.0.7
 pyBSDate==0.3.0
-pyBSDate==0.3.0
 pyodbc==4.0.39
 python-dotenv==1.0.0
 tomli==2.0.1
+requests
+pandas
+pyyaml==6.0.1
+xlrd
+openpyxl

@@ -1,225 +1,152 @@
-import pyodbc as odbc
-from dotenv import load_dotenv
-import os
-import nepali_datetime
-import datetime
-from pyBSDate import bsdate, addate
-import tomli
+import pandas as pd
+
+from dbconnection import DBConnection
+from filehandlers import TransactionFileHandler
+
 from my_logging import log_setup
 import logging
-import pandas as pd
-import shutil
-from pathlib import Path
+from bs_ad_date_helpers import (get_previous_month_name_np, 
+                     get_start_to_end_date_object_in_ad,
+                     get_start_to_end_date_object_in_bs,
+                     )
+
 
 log_setup()  # Initializing logging configurations
 logger = logging.getLogger(__name__)
 
-curr_path = Path.cwd()
-db_config_file = curr_path.joinpath('config.toml')
-sheets_format_directory = curr_path.joinpath('sheets', 'format')
+def append_transactions_above_1L(transactions: list, PAN_no, name, transaction_type_char, taxable_amount):
+    transactions.append([PAN_no, name, 'E', transaction_type_char, taxable_amount, 0])
+    
 
-logger.debug('Loading database connection configuration...')
-
-print("""### Report Generator ###
-1. Purchase
-2. Sales
-""")
-while True:
-    try:
-        lookup = int(input('Enter 1 or 2: '))
-    except ValueError as ve:
-        print("! Please enter specified values only...")
-    if lookup == 1:
-        file_name = 'purchase'
-        sheet_name = 'Nepali PB'
-        break
-    elif lookup == 2:
-        file_name = 'sales'
-        sheet_name = 'Nepali SB'
-        break
-    else:
-        print("! Invalid input")
-        continue
-
-if not db_config_file.exists():
-    logger.error(f'Config file {db_config_file} does not exist')
-    exit(1)
-
-with open(db_config_file, 'rb') as config_file:
-    config_data: dict = tomli.load(config_file)
-
-DRIVER_NAME = config_data['driver']['name']
-SERVER_NAME = config_data['server']['name']
-DATABASE_NAME = config_data['database']['name']
-USERNAME = config_data['user']['name']
-logger.debug('Configurations loaded successfully')
+def save_transactions_above_1L(files: dict, transactions):
+    df = pd.read_excel(files['1L'])
+    new_df = pd.DataFrame(transactions, columns=df.columns)
+    df = pd.concat([df, new_df], ignore_index=True)
+    df.to_excel(files['1L'], index=False)
+    print(f"\n##### Transactions above 1 Lakh #####\n")
+    print(new_df)
 
 
-def get_last_date_of_previous_month(current_year: int, current_month: int):
-    """ 
-    Retruns the previous month's last date in B.S. in the format of 2079-12-30 
-    Day is hardcoded to first day of passed current month.
+def main():
+
+    master_query = """
+    SELECT [Transaction Date]
+        ,CONCAT_WS('.',[Year], [Month], [Day]) as 'Nepali Date' 
+        ,sysTran.[Transaction ID]
+        ,[Bill Receiveable Person]
+        ,accProfInfo.[Vat Pan No]
+        ,STRING_AGG([Inventory Name], '/') as 'Item'
+        ,SUM([Item In]) as 'In'
+        ,SUM([Item Out]) as 'Out'
+        ,amtTran.[Grand Total]
+        ,amtTran.[Taxable Amount]
+        ,amtTran.[Tax Amount]
+        -- ,[Transaction Type]
+    FROM [VatBillingSoftware].[dbo].[SystemTransaction] sysTran
+    ,[VatBillingSoftware].[dbo].[SystemTransactionPurchaseSalesAmount] amtTran
+    ,[VatBillingSoftware].[dbo].[AccountProfileProduct] accProfInfo
+    ,[VatBillingSoftware].[dbo].[SystemCalenderDate]
+    ,[VatBillingSoftware].[dbo].[SystemTransactionPurchaseSalesItem] psiTran
+    ,[VatBillingSoftware].[dbo].[InventoryItem]
+    WHERE sysTran.[Transaction Type] = ?
+    AND [Transaction Date] BETWEEN ? AND ?
+    AND sysTran.[Transaction ID] = amtTran.[Transaction ID]
+    AND amtTran.[Account ID] = accProfInfo.[ACCOUNT ID]
+    AND [Transaction Date] = [English Date]
+    AND [Inventory Item Code] = [Inventory ID]
+    AND psiTran.[Transaction ID] = sysTran.[Transaction ID]
+    GROUP BY [Transaction Date], [Year], [Month], [Day], sysTran.[Transaction ID]
+        ,psiTran.[Transaction ID]
+        ,[Bill Receiveable Person]
+        ,accProfInfo.[Vat Pan No]
+        ,amtTran.[Grand Total]
+        ,amtTran.[Taxable Amount]
+        ,amtTran.[Tax Amount]
+    ORDER BY [Transaction Date]
     """
-    previous_month_date = nepali_datetime.date(
-        current_year, current_month, 1) - datetime.timedelta(days=1)
-    return previous_month_date
 
+    with DBConnection('db_config.toml') as db:
+        records = db.query(master_query,
+                        [transaction_type, START_DATE_AD, END_DATE_AD]
+                        )
+    extracted_data = [list(row) for row in records]
 
-def get_start_to_end_date_object_in_ad(any_date):
-    """
-    Returns tuple of (start_date: datetime.date, end_date: datetime.date) in AD
-    """
-    ne_date_start = bsdate(year=any_date.year, month=any_date.month, day=1)
-    ne_date_end = bsdate(year=any_date.year,
-                         month=any_date.month, day=any_date.day)
-    en_date_start = ne_date_start.addate
-    en_date_end = ne_date_end.addate
-    return datetime.date(en_date_start.year, en_date_start.month, en_date_start.day), datetime.date(en_date_end.year, en_date_end.month, en_date_end.day)
+    headers = ['Date AD', 'Date', 'Transaction ID', 'Bill Receiveable Person', 'PAN No', 'Item', 'Item_in', 'Item_out', 'Total', 'Taxable', 'VAT']
+    df = pd.DataFrame(extracted_data, columns=headers)
+    df.drop(columns=['Date AD', remove_col], axis=1, inplace=True)
+    df.insert(6, 'unit', 'L')
+    df.insert(8, 'blank', '')
+    df['PAN No'].mask(df['PAN No'] == '', 000, inplace=True)
+    df['PAN No'] = df['PAN No'].astype(int)
+    df['PAN No'].mask(df['PAN No'] == 000, '', inplace=True)
+    df[item_col] = df[item_col].astype(float)
+    df['Total'] = df['Total'].astype(float)
+    df['Taxable'] = df['Taxable'].astype(float)
+    df['VAT'] = df['VAT'].astype(float)
+    df.loc['Column_Total']= df.sum(numeric_only=True, axis=0)
+    print(f"\n#### {transaction_name.capitalize()} transactions ####\n")
+    print(df)
 
+    # Totals
+    total_taxable = round(df['Taxable'].iloc[-1], 2)
+    print(f'\n[+] {transaction_name.capitalize()} total Taxable: {total_taxable}\n')
 
-today = nepali_datetime.date.today()
-date_of_previous_month = get_last_date_of_previous_month(
-    today.year, today.month)
+    PAN_customers_df = df[df['PAN No'].astype(bool)].copy()
+    PAN_customers_df = PAN_customers_df.drop('Column_Total')
+    # print(PAN_customers_df.groupby(['PAN No'], as_index=False)['Taxable'].transform('sum'))
+    PAN_customers_df = PAN_customers_df.groupby('PAN No').agg({'Bill Receiveable Person': 'first', 'Taxable': 'sum'}).reset_index()
 
-nepali_month = nepali_datetime._FULLMONTHNAMES[date_of_previous_month.month]
+    print(f'\n##### Transactions with PAN No. #####\n')
+    print(PAN_customers_df)
 
-logger.info(
-    f"#### Fetching {file_name} transactions for {date_of_previous_month.year} {nepali_month} ####")
+    PAN_customers_df_filter = PAN_customers_df[PAN_customers_df['Taxable'].gt(1_00_000)].reset_index()
 
-files = {}
-for entry in os.scandir(sheets_format_directory):
-    if entry.is_file():
-        original_name = entry.name
-        if file_name in original_name:
-            book_name = original_name.split(".")[0].split("-")[0]
-            Path().cwd().joinpath('sheets', nepali_month).mkdir(parents=True, exist_ok=True)
-            dest = curr_path.joinpath('sheets', nepali_month, book_name + " - " +
-                                nepali_month + ".xlsx")
-            files[book_name] = dest
-            shutil.copyfile(os.path.join(
-                sheets_format_directory, original_name), dest)
-START_DATE, END_DATE = get_start_to_end_date_object_in_ad(
-    date_of_previous_month)
+    transactions_above_1L = []
+    for index, row in PAN_customers_df_filter.iterrows():
+        append_transactions_above_1L(transactions_above_1L, row['PAN No'], row['Bill Receiveable Person'], trans_char, round(row['Taxable']))
 
-# START_DATE = datetime.datetime(year=2022, month=7, day=17)
-
-# END_DATE = datetime.datetime(year=2023, month=7, day=16)
-
-load_dotenv()  # Load the environment containing db password
-password = os.getenv('DBpassword')
-
-try:
-    logger.debug('Connecting to database...')
-    conn = odbc.connect(
-        f'driver={DRIVER_NAME}',
-        host=SERVER_NAME,
-        database=DATABASE_NAME,
-        user=USERNAME,
-        password=password
-    )
-
-except Exception as e:
-    logger.error(e)
-    print('---- Error connecting to database ----')
-else:
-    logger.info('---- Database connected ! ----')
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT [Transaction ID], [Transaction Type], [Transaction Date], [Bill Date], [Transaction Amount], [Bill Receiveable Person]
-        FROM VatBillingSoftware.dbo.SystemTransaction
-        WHERE [Transaction Date] >= ? AND [Transaction Date] <= ? AND [Transaction Type] = ?
-        """,
-                   [START_DATE, END_DATE, lookup]
-                   )
-    rows = cursor.fetchall()
-    logger.debug('SystemTransaction fetch complete')
-
-    extracted_data = []
-
-    inventroy_item_code = {
-        '01-0001': 'Petrol',
-        '01-0002': 'Diesel'
-    }
-
-    for row in rows:
-        # print(row[0], row[5], row[2])
-        if row[2] != row[3]:
-            print(row[2], row[3])
-            print(f'{row[0]:-^20}')
-        cursor.execute("""
-            SELECT [Inventory Item Code], [Item In], [Item Out], [ACCOUNT ID], [VATABLE AMOUNT], [VAT AMOUNT]
-            FROM VatBillingSoftware.dbo.SystemTransactionPurchaseSalesItem
-            WHERE [Transaction ID] = ?
-        """,
-                       [row[0]]
-
-                       )
-        inner_rows = cursor.fetchall()
-        curr_pan_no = cursor.execute("""
-        SELECT [Vat Pan No]
-        FROM VatBillingSoftware.dbo.AccountProfileProduct
-        WHERE [ACCOUNT ID] = ?
-        """, inner_rows[0][3]).fetchval()
-        if curr_pan_no == "":
-            curr_pan_no = 9999999999
-        bs_date = addate(year=row[2].year, month=row[2].month,
-                         day=row[2].day).bsdate.strftime("%Y.%m.%d")
-        # formatted_bs_date = bs_date.strftime("%Y.%m.%d")
-        # print(formatted_bs_date)
-
-        if len(inner_rows) > 1:
-            total_litres = 0
-            amount = 0
-            vat = 0
-            for inner_row in inner_rows:
-                total_litres += inner_row[lookup]
-                amount += inner_row[4]
-                vat += inner_row[5]
-            if amount+vat != row[4]:
-                print('[+] Diff:', row[0], amount+vat, row[4], sep=' | ')
-            extracted_data.append((bs_date, row[0], '', row[5], curr_pan_no, 'Diesel/Petrol', round(
-                total_litres, 2), 'L', amount+vat, '', amount, vat))
-            continue
-        amount = inner_rows[0][4]
-        vat = inner_rows[0][5]
-        if amount+vat != row[4]:
-            print('[+] Diff:', row[0], amount+vat, row[4], sep=' | ')
-        extracted_data.append((bs_date, row[0], '', row[5], curr_pan_no, inventroy_item_code[inner_rows[0][0]], round(
-            inner_rows[0][lookup], 2), 'L', amount+vat, '', amount, vat))
-    logger.info("---- Extraction complete ! ----")
-    # with open(file_name, 'w') as f:
-    #     f.writelines(
-    #         [f"{data[0]},{data[1]},{data[2]},{data[3]},{data[4]},{data[5]},{data[6]},{data[7]},{data[8]},{data[9]},{data[10]}\n" for data in extracted_data])
-    #     logger.info(f"{file_name} saved successfully")
-    sheet = files[file_name]
+    sheet = files[transaction_name]
 
     reader = pd.read_excel(sheet)
-    df = pd.DataFrame(extracted_data)
-    print(df)
-    df[4] = df[4].astype(int)
-    df[6] = df[6].astype(float)
-    df[8] = df[8].astype(float)
-    df[10] = df[10].astype(float)
-    df[11] = df[11].astype(float)
-
-    df[4].mask(df[4] == 9999999999, '', inplace=True)
-
-    if lookup == 2:
-        df.drop(df.columns[2], axis=1, inplace=True)
-
     with pd.ExcelWriter(
-        sheet,
-        mode="a",
-        engine="openpyxl",
-        if_sheet_exists="overlay",
-        # engine_kwargs={'options': {'strings_to_numbers': True}},
-    ) as writer:
-        df.to_excel(writer, index=False, header=False,
-                    sheet_name=sheet_name, startrow=len(reader) + 1)
+            sheet,
+            mode="a",
+            engine="openpyxl",
+            if_sheet_exists="overlay",
+            # engine_kwargs={'options': {'strings_to_numbers': True}},
+        ) as writer:
+            df.to_excel(writer, index=False, header=False,
+                        sheet_name=sheet_name, startrow=len(reader) + 1)
+    save_transactions_above_1L(files, transactions_above_1L)
+            
 
-finally:
-    try:
-        cursor.close()
-        conn.close()
-    except NameError as name_error:
-        logger.error(f'Terminating forcefully with error {name_error}')
+if __name__ == '__main__':
+
+    previous_month_np = get_previous_month_name_np()
+
+    START_DATE_AD, END_DATE_AD = get_start_to_end_date_object_in_ad()
+
+    START_DATE_BS, END_DATE_BS = get_start_to_end_date_object_in_bs()
+
+    logger.info(f"#### Fetching transactions for {START_DATE_BS} to {END_DATE_BS} ({previous_month_np}) ####")
+    # transaction_type: int = 1
+
+    transactions = (1, 2)
+
+    trans_file = TransactionFileHandler(previous_month_np)
+    files = trans_file.files
+
+    for transaction_type in transactions:
+        if transaction_type == 2:
+            transaction_name = 'sales'
+            sheet_name = 'Nepali SB'
+            remove_col = 'Item_in'
+            item_col = 'Item_out'
+            trans_char = 'S'
+        elif transaction_type == 1:
+            transaction_name = 'purchase'
+            sheet_name = 'Nepali PB'
+            remove_col = 'Item_out'
+            item_col = 'Item_in'
+            trans_char = 'P'
+        main()
