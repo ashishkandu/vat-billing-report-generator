@@ -1,4 +1,6 @@
 import pandas as pd
+from dataclasses import dataclass, fields
+from typing import List, Any
 
 from dbconnection import DBConnection
 from filehandlers import TransactionFileHandler
@@ -14,6 +16,26 @@ from bs_ad_date_helpers import (get_previous_month_name_np,
 log_setup()  # Initializing logging configurations
 logger = logging.getLogger(__name__)
 
+@dataclass
+class Transaction:
+    transaction_type: int
+    transaction_name: str
+    sheet_name: str
+    remove_col: str
+    item_col: str
+    trans_char: str
+    records: List[List[Any]]
+
+@dataclass
+class Transactions:
+    sales: Transaction
+    purchase: Transaction
+
+    def __iter__(self):
+        for field in fields(self):
+            yield getattr(self, field.name)
+        # yield from asdict(self).values()
+
 def append_transactions_above_1L(transactions: list, PAN_no, name, transaction_type_char, taxable_amount):
     transactions.append([PAN_no, name, 'E', transaction_type_char, taxable_amount, 0])
     
@@ -27,7 +49,7 @@ def save_transactions_above_1L(files: dict, transactions):
     print(new_df)
 
 
-def main():
+def main(transactions: Transactions):
 
     master_query = """
     SELECT [Transaction Date]
@@ -66,57 +88,64 @@ def main():
     """
 
     with DBConnection('db_config.toml') as db:
-        records = db.query(master_query,
-                        [transaction_type, START_DATE_AD, END_DATE_AD]
+        purchase_records = db.query(master_query,
+                        [transactions.purchase.transaction_type, START_DATE_AD, END_DATE_AD]
                         )
-    extracted_data = [list(row) for row in records]
-
-    headers = ['Date AD', 'Date', 'Transaction ID', 'Bill Receiveable Person', 'PAN No', 'Item', 'Item_in', 'Item_out', 'Total', 'Taxable', 'VAT']
-    df = pd.DataFrame(extracted_data, columns=headers)
-    df.drop(columns=['Date AD', remove_col], axis=1, inplace=True)
-    df.insert(6, 'unit', 'L')
-    df.insert(8, 'blank', '')
-    df['PAN No'].mask(df['PAN No'] == '', 000, inplace=True)
-    df['PAN No'] = df['PAN No'].astype(int)
-    df['PAN No'].mask(df['PAN No'] == 000, '', inplace=True)
-    df[item_col] = df[item_col].astype(float)
-    df['Total'] = df['Total'].astype(float)
-    df['Taxable'] = df['Taxable'].astype(float)
-    df['VAT'] = df['VAT'].astype(float)
-    df.loc['Column_Total']= df.sum(numeric_only=True, axis=0)
-    print(f"\n#### {transaction_name.capitalize()} transactions ####\n")
-    print(df)
-
-    # Totals
-    total_taxable = round(df['Taxable'].iloc[-1], 2)
-    print(f'\n[+] {transaction_name.capitalize()} total Taxable: {total_taxable}\n')
-
-    PAN_customers_df = df[df['PAN No'].astype(bool)].copy()
-    PAN_customers_df = PAN_customers_df.drop('Column_Total')
-    # print(PAN_customers_df.groupby(['PAN No'], as_index=False)['Taxable'].transform('sum'))
-    PAN_customers_df = PAN_customers_df.groupby('PAN No').agg({'Bill Receiveable Person': 'first', 'Taxable': 'sum'}).reset_index()
-
-    print(f'\n##### Transactions with PAN No. #####\n')
-    print(PAN_customers_df)
-
-    PAN_customers_df_filter = PAN_customers_df[PAN_customers_df['Taxable'].gt(1_00_000)].reset_index()
+        sales_records = db.query(master_query,
+                        [transactions.sales.transaction_type, START_DATE_AD, END_DATE_AD]
+                        )
+    
+    transactions.purchase.records = [list(row) for row in purchase_records] 
+    transactions.sales.records = [list(row) for row in sales_records] 
 
     transactions_above_1L = []
-    for index, row in PAN_customers_df_filter.iterrows():
-        append_transactions_above_1L(transactions_above_1L, row['PAN No'], row['Bill Receiveable Person'], trans_char, round(row['Taxable']))
 
-    sheet = files[transaction_name]
+    transaction: Transaction
+    for transaction in transactions:
+        headers = ['Date AD', 'Date', 'Transaction ID', 'Bill Receiveable Person', 'PAN No', 'Item', 'Item_in', 'Item_out', 'Total', 'Taxable', 'VAT']
+        df = pd.DataFrame(transaction.records , columns=headers)
+        df.drop(columns=['Date AD', transaction.remove_col], axis=1, inplace=True)
+        df.insert(6, 'unit', 'L')
+        df.insert(8, 'blank', '')
+        df['PAN No'].mask(df['PAN No'] == '', 000, inplace=True)
+        df['PAN No'] = df['PAN No'].astype(int)
+        df['PAN No'].mask(df['PAN No'] == 000, '', inplace=True)
+        df[transaction.item_col] = df[transaction.item_col].astype(float)
+        df['Total'] = df['Total'].astype(float)
+        df['Taxable'] = df['Taxable'].astype(float)
+        df['VAT'] = df['VAT'].astype(float)
+        df.loc['Column_Total']= df.sum(numeric_only=True, axis=0)
+        print(f"\n#### {transaction.transaction_name.capitalize()} transactions ####\n")
+        print(df)
 
-    reader = pd.read_excel(sheet)
-    with pd.ExcelWriter(
-            sheet,
-            mode="a",
-            engine="openpyxl",
-            if_sheet_exists="overlay",
-            # engine_kwargs={'options': {'strings_to_numbers': True}},
-        ) as writer:
-            df.to_excel(writer, index=False, header=False,
-                        sheet_name=sheet_name, startrow=len(reader) + 1)
+        # Totals
+        total_taxable = round(df['Taxable'].iloc[-1], 2)
+        print(f'\n[+] {transaction.transaction_name.capitalize()} total Taxable: {total_taxable}\n')
+
+        PAN_customers_df = df[df['PAN No'].astype(bool)].copy()
+        PAN_customers_df = PAN_customers_df.drop('Column_Total')
+        PAN_customers_df = PAN_customers_df.groupby('PAN No').agg({'Bill Receiveable Person': 'first', 'Taxable': 'sum'}).reset_index()
+
+        print(f'\n##### Transactions with PAN No. #####\n')
+        print(PAN_customers_df)
+
+        PAN_customers_df_filter = PAN_customers_df[PAN_customers_df['Taxable'].gt(1_00_000)].reset_index()
+
+        for index, row in PAN_customers_df_filter.iterrows():
+            append_transactions_above_1L(transactions_above_1L, row['PAN No'], row['Bill Receiveable Person'], transaction.trans_char, round(row['Taxable']))
+
+        sheet = files[transaction.transaction_name]
+
+        reader = pd.read_excel(sheet)
+        with pd.ExcelWriter(
+                sheet,
+                mode="a",
+                engine="openpyxl",
+                if_sheet_exists="overlay",
+                # engine_kwargs={'options': {'strings_to_numbers': True}},
+            ) as writer:
+                df.to_excel(writer, index=False, header=False,
+                            sheet_name=transaction.sheet_name, startrow=len(reader) + 1)
     save_transactions_above_1L(files, transactions_above_1L)
             
 
@@ -129,24 +158,13 @@ if __name__ == '__main__':
     START_DATE_BS, END_DATE_BS = get_start_to_end_date_object_in_bs()
 
     logger.info(f"#### Fetching transactions for {START_DATE_BS} to {END_DATE_BS} ({previous_month_np}) ####")
-    # transaction_type: int = 1
-
-    transactions = (1, 2)
 
     trans_file = TransactionFileHandler(previous_month_np)
     files = trans_file.files
 
-    for transaction_type in transactions:
-        if transaction_type == 2:
-            transaction_name = 'sales'
-            sheet_name = 'Nepali SB'
-            remove_col = 'Item_in'
-            item_col = 'Item_out'
-            trans_char = 'S'
-        elif transaction_type == 1:
-            transaction_name = 'purchase'
-            sheet_name = 'Nepali PB'
-            remove_col = 'Item_out'
-            item_col = 'Item_in'
-            trans_char = 'P'
-        main()
+    purchase = Transaction(1, 'purchase', 'Neplai PB', 'Item_out', 'Item_in', 'P', None)
+    sales = Transaction(2, 'sales', 'Neplai SB', 'Item_in', 'Item_out', 'S', None)
+
+    transactions = Transactions(purchase, sales)
+
+    main(transactions)
