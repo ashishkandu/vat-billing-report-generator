@@ -141,12 +141,12 @@ def main(transactions: Transactions):
         # filtering transactions having PAN no field value
         PAN_customers_df = df[df['PAN No'].astype(bool)].copy()
         PAN_customers_df = PAN_customers_df.drop('Column_Total')
-        PAN_customers_df = PAN_customers_df.groupby('PAN No').agg({'Bill Receiveable Person': 'first', 'Taxable': 'sum'}).reset_index()
+        PAN_customers_df = PAN_customers_df.groupby('PAN No').agg({'Bill Receiveable Person': 'first', 'Taxable': 'sum', 'Total': 'sum'}).reset_index()
 
         print(f'\n##### Transactions with PAN No. #####\n')
         print(PAN_customers_df)
 
-        PAN_customers_df_filter = PAN_customers_df[PAN_customers_df['Taxable'].gt(1_00_000)].reset_index()
+        PAN_customers_df_filter = PAN_customers_df[PAN_customers_df['Total'].gt(1_00_000)].reset_index()
 
         for index, row in PAN_customers_df_filter.iterrows():
             append_transactions_above_1L(transactions_above_1L, row['PAN No'], row['Bill Receiveable Person'], transaction.trans_char, round(row['Taxable']))
