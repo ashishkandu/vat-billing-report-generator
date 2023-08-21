@@ -1,5 +1,5 @@
 SELECT [Transaction Date]
-	  ,CONCAT_WS('.',[Year], [Month], [Day]) as 'Nepali Date' 
+	  ,CONCAT_WS('.',[Year], [Month], [Day]) as 'Nepali Date'
 	  ,sysTran.[Transaction ID]
       ,[Bill Receiveable Person]
 	  ,accProfInfo.[Vat Pan No]
@@ -9,6 +9,7 @@ SELECT [Transaction Date]
       ,amtTran.[Grand Total]
       ,amtTran.[Taxable Amount]
       ,amtTran.[Tax Amount]
+      ,[Reference No]
       -- ,[Transaction Type]
   FROM [VatBillingSoftware].[dbo].[SystemTransaction] sysTran
   ,[VatBillingSoftware].[dbo].[SystemTransactionPurchaseSalesAmount] amtTran
@@ -17,10 +18,11 @@ SELECT [Transaction Date]
   ,[VatBillingSoftware].[dbo].[SystemTransactionPurchaseSalesItem] psiTran
   ,[VatBillingSoftware].[dbo].[InventoryItem]
   WHERE sysTran.[Transaction Type] = 2 -- 1: Purchase 2: Sales
-  AND [Transaction Date] BETWEEN '2023-05-15' AND '2023-06-15'
+  AND [Transaction Date] BETWEEN '2023-07-17' AND '2023-08-17'
   AND sysTran.[Transaction ID] = amtTran.[Transaction ID]
+  AND sysTran.Status != '001-03'
   AND amtTran.[Account ID] = accProfInfo.[ACCOUNT ID]
-  AND [Transaction Date] = [English Date]
+  AND [Bill Date] = [English Date]
   AND [Inventory Item Code] = [Inventory ID]
   AND psiTran.[Transaction ID] = sysTran.[Transaction ID]
   GROUP BY [Transaction Date], [Year], [Month], [Day], sysTran.[Transaction ID]
@@ -28,7 +30,7 @@ SELECT [Transaction Date]
 	  ,[Bill Receiveable Person]
 	  ,accProfInfo.[Vat Pan No]
       ,amtTran.[Grand Total]
-      ,amtTran.[Taxable Amount] + amtTran.[Tax Amount] as 'Total'
       ,amtTran.[Taxable Amount]
       ,amtTran.[Tax Amount]
-  ORDER BY sysTran.[Transaction ID]
+      ,[Reference No]
+  ORDER BY sysTran.[Transaction Date];

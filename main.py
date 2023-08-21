@@ -7,7 +7,7 @@ from filehandlers import TransactionFileHandler
 
 from my_logging import log_setup
 import logging
-from bs_ad_date_helpers import (get_previous_month_name_np, 
+from bs_ad_date_helpers import (get_previous_month_name_np,
                      get_start_to_end_date_object_in_ad,
                      get_start_to_end_date_object_in_bs,
                      )
@@ -21,7 +21,7 @@ class Transaction:
     transaction_type: int
     transaction_name: str
     sheet_name: str
-    remove_col: str
+    remove_cols: List[str]
     item_col: str
     trans_char: str
     records: List[List[Any]]
@@ -37,7 +37,7 @@ class Transactions:
 
 def append_transactions_above_1L(transactions: list, PAN_no, name, transaction_type_char, taxable_amount):
     transactions.append([PAN_no, name, 'E', transaction_type_char, taxable_amount, 0])
-    
+
 
 def save_transactions_above_1L(files: dict, transactions: List[List[Any]]):
     df = pd.read_excel(files['1L'])
@@ -53,8 +53,9 @@ def main(transactions: Transactions):
 
     master_query = """
     SELECT [Transaction Date]
-        ,CONCAT_WS('.',[Year], [Month], [Day]) as 'Nepali Date' 
+        ,CONCAT_WS('.',[Year], [Month], [Day]) as 'Nepali Date'
         ,sysTran.[Transaction ID]
+        ,[Reference No]
         ,[Bill Receiveable Person]
         ,accProfInfo.[Vat Pan No]
         ,STRING_AGG([Inventory Name], '/') as 'Item'
@@ -73,8 +74,9 @@ def main(transactions: Transactions):
     WHERE sysTran.[Transaction Type] = ?
     AND [Transaction Date] BETWEEN ? AND ?
     AND sysTran.[Transaction ID] = amtTran.[Transaction ID]
+    AND sysTran.Status != '001-03'
     AND amtTran.[Account ID] = accProfInfo.[ACCOUNT ID]
-    AND [Transaction Date] = [English Date]
+    AND [Bill Date] = [English Date]
     AND [Inventory Item Code] = [Inventory ID]
     AND psiTran.[Transaction ID] = sysTran.[Transaction ID]
     GROUP BY [Transaction Date], [Year], [Month], [Day], sysTran.[Transaction ID]
@@ -84,6 +86,7 @@ def main(transactions: Transactions):
         ,amtTran.[Grand Total]
         ,amtTran.[Taxable Amount]
         ,amtTran.[Tax Amount]
+        ,[Reference No]
     ORDER BY [Transaction Date]
     """
 
@@ -94,21 +97,21 @@ def main(transactions: Transactions):
         sales_records = db.query(master_query,
                         [transactions.sales.transaction_type, START_DATE_AD, END_DATE_AD]
                         )
-    
-    transactions.purchase.records = [list(row) for row in purchase_records] 
-    transactions.sales.records = [list(row) for row in sales_records] 
+
+    transactions.purchase.records = [list(row) for row in purchase_records]
+    transactions.sales.records = [list(row) for row in sales_records]
 
     transactions_above_1L = []
 
     transaction: Transaction
     for transaction in transactions:
         # adding headers here to make working with dataframe easier
-        headers = ['Date AD', 'Date', 'Transaction ID', 'Bill Receiveable Person', 'PAN No', 'Item', 'Item_in', 'Item_out', 'Total', 'Taxable', 'VAT']
+        headers = ['Date AD', 'Date', 'Transaction ID', 'PurchaseInvoiceNo', 'Bill Receiveable Person', 'PAN No', 'Item', 'Item_in', 'Item_out', 'Total', 'Taxable', 'VAT']
         df = pd.DataFrame(transaction.records , columns=headers)
 
-        # removing Date AD column, didnt remove from the query for future use also removing one
-        # column either item_In or item_Out
-        df.drop(columns=['Date AD', transaction.remove_col], axis=1, inplace=True)
+        # removing Date AD column, didnt remove from the query for future use also removing other
+        # column like item_In or item_Out, invoiceno, transaction id, based on transaction type
+        df.drop(columns=['Date AD']+transaction.remove_cols, axis=1, inplace=True)
 
         # insertion of extra columns as required by format templates
         df.insert(6, 'unit', 'L')
@@ -161,7 +164,7 @@ def main(transactions: Transactions):
                 df.to_excel(writer, index=False, header=False,
                             sheet_name=transaction.sheet_name, startrow=len(reader) + 1)
     save_transactions_above_1L(files, transactions_above_1L)
-            
+
 
 if __name__ == '__main__':
 
@@ -176,8 +179,8 @@ if __name__ == '__main__':
     trans_file = TransactionFileHandler(previous_month_np)
     files = trans_file.files
 
-    purchase = Transaction(1, 'purchase', 'Nepali PB', 'Item_out', 'Item_in', 'P', None)
-    sales = Transaction(2, 'sales', 'Nepali SB', 'Item_in', 'Item_out', 'S', None)
+    purchase = Transaction(1, 'purchase', 'Nepali PB', ['Item_out', 'Transaction ID'], 'Item_in', 'P', None)
+    sales = Transaction(2, 'sales', 'Nepali SB', ['Item_in', 'PurchaseInvoiceNo'], 'Item_out', 'S', None)
 
     transactions = Transactions(purchase, sales)
 
